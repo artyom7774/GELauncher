@@ -136,10 +136,12 @@ class VersionItem(QTreeWidget):
         webbrowser.open(f"https://github.com/artyom7774/Game-Engine-3/releases/tag/GE{self.version}")
 
     def onDownloadClick(self):
-        versionDownload(
+        thr = threading.Thread(target=lambda: versionDownload(
             f"https://github.com/artyom7774/Game-Engine-3/releases/tag/GE{self.version}/Game-Engine-3-windows.zip",
             f"versions/Game Engine {self.version}/"
-        )
+        ))
+        thr.daemon = True
+        thr.start()
 
 
 class Main(QMainWindow):
