@@ -1,10 +1,10 @@
+import os.path
+
 from PyQt5.QtWidgets import QMainWindow, QApplication, QTreeWidget, QLabel, QStatusBar, QAction, QTreeWidgetItem, QShortcut, QPushButton, QScrollArea, QWidget, QVBoxLayout, QHBoxLayout
 from PyQt5.QtGui import QKeySequence
 from PyQt5.Qt import QIcon, QSize, Qt
 
 from scr.variables import *
-
-from urllib.parse import urlparse
 
 import webbrowser
 import qdarktheme
@@ -12,8 +12,10 @@ import subprocess
 import traceback
 import threading
 import requests
+import shutil
 import typing
 import ctypes
+import time
 import sys
 
 
@@ -47,7 +49,7 @@ def versionDownload(url, folder, chunk_size=8192):
 
     with requests.get(url, stream=True) as r:
         r.raise_for_status()
-        with open(f"{folder}/engine.zip", 'wb') as f:
+        with open(f"{folder}/installer.exe", 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
@@ -88,7 +90,7 @@ class FocusTreeWidget(QTreeWidget):
 
 
 class VersionItem(QTreeWidget):
-    def __init__(self, name, log="", version=None, parent=None):
+    def __init__(self, name, log="", version=None, wasInstalled=False, parent=None):
         super().__init__(parent)
 
         self.project = parent
@@ -107,6 +109,8 @@ class VersionItem(QTreeWidget):
         self.name.setFont(BIG_HELP_FONT)
         layout.addWidget(self.name)
 
+        self.wasInstalled = wasInstalled
+
         self.changelog = QLabel(log)
         self.changelog.setWordWrap(True)
 
@@ -116,7 +120,7 @@ class VersionItem(QTreeWidget):
         verMinSplit = list(map(int, MIN_VERSION_FOR_DOWNLOAD.split(".")))
 
         if versionIsCurrect(verSplit, verMinSplit):
-            self.download = QPushButton(translate("Download"))
+            self.download = QPushButton(translate("Download") if not wasInstalled else translate("Run"))
             self.download.setFixedHeight(24)
             self.download.setStyleSheet(BUTTON_BLUE_STYLE)
             self.download.clicked.connect(lambda: self.onDownloadClick())
@@ -130,18 +134,79 @@ class VersionItem(QTreeWidget):
 
         layout.addWidget(self.view)
 
+        if wasInstalled:
+            self.save = QPushButton(translate("Save projects"))
+            self.save.setFixedHeight(24)
+            self.save.setStyleSheet(BUTTON_BLUE_STYLE)
+            self.save.clicked.connect(lambda: self.onSaveProjectsClick())
+
+            layout.addWidget(self.save)
+
+            self.load = QPushButton(translate("Load projects"))
+            self.load.setFixedHeight(24)
+            self.load.setStyleSheet(BUTTON_BLUE_STYLE)
+            self.load.clicked.connect(lambda: self.onLoadProjectsClick())
+
+            layout.addWidget(self.load)
+
         self.setLayout(layout)
 
     def onViewClick(self):
         webbrowser.open(f"https://github.com/artyom7774/Game-Engine-3/releases/tag/GE{self.version}")
 
     def onDownloadClick(self):
-        thr = threading.Thread(target=lambda: versionDownload(
-            f"https://github.com/artyom7774/Game-Engine-3/releases/tag/GE{self.version}/Game-Engine-3-windows.zip",
-            f"versions/Game Engine {self.version}/"
-        ))
-        thr.daemon = True
+        if not self.wasInstalled:
+            self.download.setText(translate("Please wait..."))
+            self.download.setDisabled(True)
+
+            time.sleep(0.5)
+
+            try:
+                versionDownload(
+                    f"https://github.com/artyom7774/Game-Engine-3/releases/download/GE{self.version}/Game-Engine-3-windows.sfx.exe",
+                    f"versions/Game Engine {self.version}/"
+                )
+
+            except Exception:
+                print("ERROR: can't download engine, bad internet")
+
+                MessageBox.error("Check your internet connection")
+
+                return
+
+            os.system(f"cd \"versions/Game Engine {self.version}\" && installer.exe /s")
+            os.remove(f"versions/Game Engine {self.version}/installer.exe")
+
+            self.project.init()
+
+            return
+
+        thr = threading.Thread(target=lambda: os.system(f"cd \"versions/Game Engine {self.version}\" && \"Game Engine 3.exe\""))
+        thr.daemon = False
         thr.start()
+
+    def onSaveProjectsClick(self):
+        pathLoad = f"versions/Game Engine {self.version}/projects"
+        pathSave = f"projects"
+
+        for project in os.listdir(pathLoad):
+            if os.path.exists(f"{pathSave}/{project}"):
+                shutil.rmtree(f"{pathSave}/{project}")
+
+            shutil.copytree(f"{pathLoad}/{project}", f"{pathSave}/{project}")
+
+    def onLoadProjectsClick(self):
+        pathLoad = f"projects"
+        pathSave = f"versions/Game Engine {self.version}/projects"
+
+        for project in os.listdir(pathLoad):
+            if os.path.isfile(f"{pathLoad}/{project}"):
+                continue
+
+            if os.path.exists(f"{pathSave}/{project}"):
+                shutil.rmtree(f"{pathSave}/{project}")
+
+            shutil.copytree(f"{pathLoad}/{project}", f"{pathSave}/{project}")
 
 
 class Main(QMainWindow):
@@ -283,8 +348,6 @@ class Main(QMainWindow):
         self.menu()
 
     def versionsMenu(self):
-        print(1)
-
         self.objects["main"]["scroll_area"] = QScrollArea(self)
         self.objects["main"]["scroll_area"].setGeometry(107, 10, self.width() - 130, self.height() - 42)
         self.objects["main"]["scroll_area"].setWidgetResizable(True)
@@ -296,8 +359,22 @@ class Main(QMainWindow):
 
         url = "https://raw.githubusercontent.com/artyom7774/Game-Engine-3/main/scr/files/updates.json"
 
-        response = requests.get(url)
-        data = response.json()
+        try:
+            print("LOG: download list of versions...")
+
+            response = requests.get(url)
+            data = response.json()
+
+        except Exception:
+            print("ERROR: can't download versions list, using last list of versions")
+
+            data = json.load(open("scr/files/versions.json", "r", encoding="utf-8"))
+
+        else:
+            print("LOG: successful")
+
+            with open("scr/files/versions.json", "w", encoding="utf-8") as file:
+                json.dump(data, file, indent=4)
 
         versions = []
 
@@ -312,7 +389,9 @@ class Main(QMainWindow):
             name = data["updates"][version]["name"]
             log = data["updates"][version]["text"]
 
-            version_item = VersionItem(name, log, version, self)
+            wasInstalled = os.path.exists(f"versions/Game Engine {version}/Game Engine 3.exe")
+
+            version_item = VersionItem(name, log, version, wasInstalled, self)
 
             scrollLayout.addWidget(version_item)
 
