@@ -4,6 +4,8 @@ from PyQt5.Qt import QIcon, QSize, Qt
 
 from scr.variables import *
 
+from urllib.parse import urlparse
+
 import webbrowser
 import qdarktheme
 import subprocess
@@ -39,6 +41,40 @@ def exceptionHandler(func) -> typing.Callable:
     return wrapper
 
 
+def versionDownload(url, folder, chunk_size=8192):
+    if not os.path.exists(folder):
+        os.mkdir(folder)
+
+    with requests.get(url, stream=True) as r:
+        r.raise_for_status()
+        with open(f"{folder}/engine.zip", 'wb') as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+
+
+def versionIsCurrect(version, minVersion):
+    if version[0] > minVersion[0]:
+        return True
+
+    if version[0] < minVersion[0]:
+        return False
+
+    if version[1] > minVersion[1]:
+        return True
+
+    if version[1] < minVersion[1]:
+        return False
+
+    if version[2] > minVersion[2]:
+        return True
+
+    if version[2] < minVersion[2]:
+        return False
+
+    return True
+
+
 class FocusTreeWidget(QTreeWidget):
     def __init__(self, parent=None):
         QTreeWidget.__init__(self, parent)
@@ -51,43 +87,59 @@ class FocusTreeWidget(QTreeWidget):
         event.accept()
 
 
-class VersionItem(QWidget):
-    def __init__(self, name, changelog="", parent=None):
+class VersionItem(QTreeWidget):
+    def __init__(self, name, log="", version=None, parent=None):
         super().__init__(parent)
 
         self.project = parent
+        self.version = version
 
         self.name = name
-        self.changelog = changelog
+        self.log = log
 
-        # self.setFixedHeight(120)
+        self.header().hide()
 
         layout = QVBoxLayout()
         layout.setContentsMargins(15, 10, 15, 10)
         layout.setSpacing(5)
 
-        self.label = QLabel(name)
-        self.label.setFont(BIG_HELP_FONT)
-        # self.label.setStyleSheet("border: none; font-size: 16px; font-weight: bold; color: #ffffff;")
-        layout.addWidget(self.label)
+        self.name = QLabel(f"Game Engine {name}")
+        self.name.setFont(BIG_HELP_FONT)
+        layout.addWidget(self.name)
 
-        self.changelog_label = QLabel(changelog if changelog else "Обновления и исправления ошибок")
-        # self.changelog_label.setStyleSheet("border: none; font-size: 12px; color: #cccccc; margin: 5px 0px;")
-        self.changelog_label.setWordWrap(True)
-        # self.changelog_label.setMaximumHeight(40)
-        layout.addWidget(self.changelog_label)
+        self.changelog = QLabel(log)
+        self.changelog.setWordWrap(True)
 
-        self.download_button = QPushButton("Скачать")
-        self.download_button.setFixedHeight(30)
-        self.download_button.setStyleSheet(BUTTON_BLUE_STYLE)
-        self.download_button.clicked.connect(lambda: self.onDownloadClick())
-        layout.addWidget(self.download_button)
+        layout.addWidget(self.changelog)
+
+        verSplit = list(map(int, version.split(".")))
+        verMinSplit = list(map(int, MIN_VERSION_FOR_DOWNLOAD.split(".")))
+
+        if versionIsCurrect(verSplit, verMinSplit):
+            self.download = QPushButton(translate("Download"))
+            self.download.setFixedHeight(24)
+            self.download.setStyleSheet(BUTTON_BLUE_STYLE)
+            self.download.clicked.connect(lambda: self.onDownloadClick())
+
+            layout.addWidget(self.download)
+
+        self.view = QPushButton(translate("View"))
+        self.view.setFixedHeight(24)
+        self.view.setStyleSheet(BUTTON_BLUE_STYLE)
+        self.view.clicked.connect(lambda: self.onViewClick())
+
+        layout.addWidget(self.view)
 
         self.setLayout(layout)
 
+    def onViewClick(self):
+        webbrowser.open(f"https://github.com/artyom7774/Game-Engine-3/releases/tag/GE{self.version}")
+
     def onDownloadClick(self):
-        print(f"Скачивание версии: {self.name}")
-        # Здесь можно добавить логику для скачивания конкретной версии
+        versionDownload(
+            f"https://github.com/artyom7774/Game-Engine-3/releases/tag/GE{self.version}/Game-Engine-3-windows.zip",
+            f"versions/Game Engine {self.version}/"
+        )
 
 
 class Main(QMainWindow):
@@ -141,6 +193,7 @@ class Main(QMainWindow):
 
     def initialization(self) -> None:
         self.setWindowTitle("GELauncher")
+        self.setWindowIcon(QIcon("scr/files/sprites/logo.png"))
 
         self.objects["main"] = {}
 
@@ -233,32 +286,31 @@ class Main(QMainWindow):
         self.objects["main"]["scroll_area"] = QScrollArea(self)
         self.objects["main"]["scroll_area"].setGeometry(107, 10, self.width() - 130, self.height() - 42)
         self.objects["main"]["scroll_area"].setWidgetResizable(True)
-        self.objects["main"]["scroll_area"].setStyleSheet("QScrollArea { border: 1px solid #666; }")
+        self.objects["main"]["scroll_area"].setStyleSheet("QScrollArea { border: 1px solid #3f4042; };")
 
         scrollWidget = QWidget()
         scrollLayout = QVBoxLayout(scrollWidget)
         scrollLayout.setSpacing(5)
-        scrollLayout.setContentsMargins(10, 10, 10, 10)
 
-        versions_data = [
-            ("Godot Engine 4.2.2", "- update moving object by angle\n- message about a program update, if one exists\n- update help menu"),
-            ("Godot Engine 4.2.1", "Исправления ошибок в системе анимации. Обновлена поддержка платформ."),
-            ("Godot Engine 4.2.0", "Новые возможности 2D и 3D рендеринга. Улучшен редактор сцен."),
-            ("Godot Engine 4.1.4", "Стабильные исправления. Оптимизация памяти и производительности."),
-            ("Godot Engine 4.1.3", "Исправления ошибок импорта ресурсов. Улучшена совместимость."),
-            ("Godot Engine 4.1.2", "Обновления системы физики. Исправления багов редактора."),
-            ("Godot Engine 4.1.1", "Мелкие исправления и улучшения стабильности движка."),
-            ("Godot Engine 4.1.0", "Крупное обновление с новыми функциями и улучшениями."),
-            ("Godot Engine 4.0.4", "Критические исправления и улучшения производительности."),
-            ("Godot Engine 4.0.3", "Исправления ошибок и стабилизация работы движка."),
-            ("Godot Engine 4.0.2", "Важные исправления после выхода 4.0."),
-            ("Godot Engine 4.0.1", "Первые исправления версии 4.0. Улучшения стабильности."),
-            ("Godot Engine 4.0.0", "Полностью переработанная версия с поддержкой Vulkan и новым рендерером.")
-        ]
+        url = "https://raw.githubusercontent.com/artyom7774/Game-Engine-3/main/scr/files/updates.json"
+
+        response = requests.get(url)
+        data = response.json()
+
+        versions = []
+
+        for version in data["sorted"]:
+            versions.append(version)
 
         items = []
-        for version_name, changelog in versions_data:
-            version_item = VersionItem(version_name, changelog, self)
+
+        versions = versions[::-1]
+
+        for version in versions:
+            name = data["updates"][version]["name"]
+            log = data["updates"][version]["text"]
+
+            version_item = VersionItem(name, log, version, self)
 
             scrollLayout.addWidget(version_item)
 

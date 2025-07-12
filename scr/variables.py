@@ -279,3 +279,7 @@ else:
         color: black;
     }
     """
+
+# GELauncher
+
+MIN_VERSION_FOR_DOWNLOAD = "3.11.0"
