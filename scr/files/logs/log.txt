@@ -1,0 +1,4 @@
+LOG: divelop mode = False
+LOG: program runned on "Windows 10"
+LOG: download list of versions...
+LOG: successful
