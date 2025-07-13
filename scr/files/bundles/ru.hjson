@@ -1,5 +1,5 @@
 {
-    "Download": "Загрузить"
+    "Download": "Скачать"
     "Run": "Запустить"
     "View": "Посмотреть"
     "Save projects": "Сохранить проекты в лаунчер"
@@ -7,4 +7,14 @@
     "Please wait...": "Пожалуйсто подождите..."
     "Error": "Ошибка"
     "Check your internet connection": "Проверьте соединение с интернетом"
+    "Version": "Версия"
+    "Delete": "Удалить"
+    "Version is not found": "Версия не найдена"
+    "About": "О программе"
+    "Project site": "Сайт проекта"
+    "Discord community": "Discord сообщество"
+    "Settings": "Настройки"
+    "No projects": "Проекты отсутствуют"
+    "Language": "Язык"
+    "Theme": "Тема"
 }

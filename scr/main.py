@@ -1,6 +1,4 @@
-import os.path
-
-from PyQt5.QtWidgets import QMainWindow, QApplication, QTreeWidget, QLabel, QStatusBar, QAction, QTreeWidgetItem, QShortcut, QPushButton, QScrollArea, QWidget, QVBoxLayout, QHBoxLayout
+from PyQt5.QtWidgets import QMainWindow, QApplication, QTreeWidget, QLabel, QComboBox, QStatusBar, QAction, QTreeWidgetItem, QShortcut, QPushButton, QScrollArea, QWidget, QVBoxLayout, QHBoxLayout
 from PyQt5.QtGui import QKeySequence
 from PyQt5.Qt import QIcon, QSize, Qt
 
@@ -17,6 +15,9 @@ import typing
 import ctypes
 import time
 import sys
+
+VERSIONS_WAS_LOADED = False
+MIN_VERSION_FOR_DOWNLOAD = "3.11.0"
 
 
 def exceptionHandler(func) -> typing.Callable:
@@ -87,6 +88,55 @@ class FocusTreeWidget(QTreeWidget):
         self.setFocus()
 
         event.accept()
+
+
+class ProjectItem(QTreeWidget):
+    def __init__(self, path, parent=None):
+        super().__init__(parent)
+
+        self.project = parent
+        self.path = path
+
+        with open(f"{path}/version.json", "r", encoding="utf-8") as file:
+            version = json.load(file)["version"]
+
+        self.display = path.replace("projects/", "")
+
+        self.version = version
+
+        self.setFixedWidth(parent.width() - 160)
+
+        self.header().hide()
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(15, 10, 15, 10)
+        layout.setSpacing(5)
+
+        self.name = QLabel(f"{self.display}")
+        self.name.setFont(BIG_HELP_FONT)
+        layout.addWidget(self.name)
+
+        self.changelog = QLabel(translate("Version") + f": {self.version}")
+        self.changelog.setWordWrap(True)
+
+        layout.addWidget(self.changelog)
+
+        verSplit = list(map(int, version.split(".")))
+        verMinSplit = list(map(int, MIN_VERSION_FOR_DOWNLOAD.split(".")))
+
+        self.delete = QPushButton(translate("Delete"))
+        self.delete.setFixedHeight(24)
+        self.delete.setStyleSheet(BUTTON_RED_STYLE)
+        self.delete.clicked.connect(lambda: self.onDeleteClick())
+
+        layout.addWidget(self.delete)
+
+        self.setLayout(layout)
+
+    def onDeleteClick(self):
+        shutil.rmtree(self.path)
+
+        self.project.init()
 
 
 class VersionItem(QTreeWidget):
@@ -167,12 +217,24 @@ class VersionItem(QTreeWidget):
                     f"versions/Game Engine {self.version}/"
                 )
 
-            except Exception:
-                print("ERROR: can't download engine, bad internet")
+            except Exception as e:
+                if str(e).startswith("404"):
+                    self.project.init()
 
-                MessageBox.error("Check your internet connection")
+                    print("ERROR: version is not found")
 
-                return
+                    MessageBox.error("Version is not found")
+
+                    return
+
+                else:
+                    self.project.init()
+
+                    print("ERROR: can't download engine, bad internet")
+
+                    MessageBox.error("Check your internet connection")
+
+                    return
 
             os.system(f"cd \"versions/Game Engine {self.version}\" && installer.exe /s")
             os.remove(f"versions/Game Engine {self.version}/installer.exe")
@@ -272,7 +334,7 @@ class Main(QMainWindow):
         self.objects["menu_versions"] = QPushButton(self)
         self.objects["menu_versions"].setStyleSheet("border-radius: 0px;")
         self.objects["menu_versions"].setGeometry(0, 0, 100, 100)
-        self.objects["menu_versions"].setIcon(QIcon("scr/files/sprites/menu/versions.png"))
+        self.objects["menu_versions"].setIcon(QIcon(f"scr/files/sprites/menu/{SETTINGS['theme']}/versions.png"))
         self.objects["menu_versions"].setIconSize(QSize(80, 80))
         self.objects["menu_versions"].show()
 
@@ -286,7 +348,7 @@ class Main(QMainWindow):
         self.objects["menu_projects"] = QPushButton(self)
         self.objects["menu_projects"].setStyleSheet("border-radius: 0px;")
         self.objects["menu_projects"].setGeometry(0, 100 - 1, 100, 100)
-        self.objects["menu_projects"].setIcon(QIcon("scr/files/sprites/menu/projects.png"))
+        self.objects["menu_projects"].setIcon(QIcon(f"scr/files/sprites/menu/{SETTINGS['theme']}/projects.png"))
         self.objects["menu_projects"].setIconSize(QSize(80, 80))
         self.objects["menu_projects"].show()
 
@@ -300,7 +362,7 @@ class Main(QMainWindow):
         self.objects["menu_about"] = QPushButton(self)
         self.objects["menu_about"].setStyleSheet("border-radius: 0px;")
         self.objects["menu_about"].setGeometry(0, 200 - 2, 100, 100)
-        self.objects["menu_about"].setIcon(QIcon("scr/files/sprites/menu/about.png"))
+        self.objects["menu_about"].setIcon(QIcon(f"scr/files/sprites/menu/{SETTINGS['theme']}/about.png"))
         self.objects["menu_about"].setIconSize(QSize(80, 80))
         self.objects["menu_about"].show()
 
@@ -314,7 +376,7 @@ class Main(QMainWindow):
         self.objects["menu_settings"] = QPushButton(self)
         self.objects["menu_settings"].setStyleSheet("border-radius: 0px;")
         self.objects["menu_settings"].setGeometry(0, 300 - 3, 100, 100)
-        self.objects["menu_settings"].setIcon(QIcon("scr/files/sprites/menu/settings.png"))
+        self.objects["menu_settings"].setIcon(QIcon(f"scr/files/sprites/menu/{SETTINGS['theme']}/settings.png"))
         self.objects["menu_settings"].setIconSize(QSize(80, 80))
         self.objects["menu_settings"].show()
 
@@ -348,10 +410,17 @@ class Main(QMainWindow):
         self.menu()
 
     def versionsMenu(self):
+        global VERSIONS_WAS_LOADED
+
         self.objects["main"]["scroll_area"] = QScrollArea(self)
         self.objects["main"]["scroll_area"].setGeometry(107, 10, self.width() - 130, self.height() - 42)
         self.objects["main"]["scroll_area"].setWidgetResizable(True)
-        self.objects["main"]["scroll_area"].setStyleSheet("QScrollArea { border: 1px solid #3f4042; };")
+
+        if SETTINGS["theme"] == "dark":
+            self.objects["main"]["scroll_area"].setStyleSheet("QScrollArea { border: 1px solid #3f4042; };")
+
+        else:
+            self.objects["main"]["scroll_area"].setStyleSheet("QScrollArea { border: 1px solid #dadce0; };")
 
         scrollWidget = QWidget()
         scrollLayout = QVBoxLayout(scrollWidget)
@@ -359,22 +428,28 @@ class Main(QMainWindow):
 
         url = "https://raw.githubusercontent.com/artyom7774/Game-Engine-3/main/scr/files/updates.json"
 
-        try:
-            print("LOG: download list of versions...")
+        if not VERSIONS_WAS_LOADED:
+            try:
+                print("LOG: download list of versions...")
 
-            response = requests.get(url)
-            data = response.json()
+                response = requests.get(url)
+                data = response.json()
 
-        except Exception:
-            print("ERROR: can't download versions list, using last list of versions")
+            except Exception:
+                print("ERROR: can't download versions list, using last list of versions")
 
-            data = json.load(open("scr/files/versions.json", "r", encoding="utf-8"))
+                data = json.load(open("scr/files/versions.json", "r", encoding="utf-8"))
+
+            else:
+                print("LOG: successful")
+
+                with open("scr/files/versions.json", "w", encoding="utf-8") as file:
+                    json.dump(data, file, indent=4)
+
+                VERSIONS_WAS_LOADED = True
 
         else:
-            print("LOG: successful")
-
-            with open("scr/files/versions.json", "w", encoding="utf-8") as file:
-                json.dump(data, file, indent=4)
+            data = json.load(open("scr/files/versions.json", "r", encoding="utf-8"))
 
         versions = []
 
@@ -403,13 +478,156 @@ class Main(QMainWindow):
         self.objects["main"]["scroll_area"].show()
 
     def projectsMenu(self):
-        print(2)
+        self.objects["main"]["scroll_area"] = QScrollArea(self)
+        self.objects["main"]["scroll_area"].setGeometry(107, 10, self.width() - 130, self.height() - 42)
+
+        if SETTINGS["theme"] == "dark":
+            self.objects["main"]["scroll_area"].setStyleSheet("QScrollArea { border: 1px solid #3f4042; };")
+
+        else:
+            self.objects["main"]["scroll_area"].setStyleSheet("QScrollArea { border: 1px solid #dadce0; };")
+
+        scrollWidget = QWidget()
+        scrollLayout = QVBoxLayout(scrollWidget)
+
+        items = []
+
+        cnt = 0
+
+        for project in os.listdir("projects"):
+            if os.path.isfile(f"projects/{project}"):
+                continue
+
+            if not os.path.exists(f"projects/{project}/version.json"):
+                with open(f"projects/{project}/version.json", "w", encoding="utf-8") as file:
+                    json.dump({"version": "3.11.0"}, file, indent=4)
+
+            project_item = ProjectItem(f"projects/{project}", self)
+
+            scrollLayout.addWidget(project_item)
+
+            items.append(project_item)
+
+            cnt += 1
+
+        scrollLayout.addStretch()
+
+        self.objects["main"]["scroll_area"].setWidget(scrollWidget)
+
+        if cnt == 0:
+            self.objects["main"]["title"] = QLabel(self)
+            self.objects["main"]["title"].setFont(BIG_HELP_FONT)
+            self.objects["main"]["title"].setText(translate("No projects"))
+            self.objects["main"]["title"].setGeometry(100, 5, 400, 30)
+            self.objects["main"]["title"].show()
+
+        else:
+            self.objects["main"]["scroll_area"].show()
 
     def aboutMenu(self):
-        print(3)
+        self.objects["main"]["title"] = QLabel(self)
+        self.objects["main"]["title"].setFont(BIG_HELP_FONT)
+        self.objects["main"]["title"].setText(translate("About"))
+        self.objects["main"]["title"].setGeometry(100, 5, 400, 30)
+        self.objects["main"]["title"].show()
+
+        self.objects["main"]["github"] = QLabel(self)
+        self.objects["main"]["github"].setFont(HELP_FONT)
+        self.objects["main"]["github"].setText(f"{translate('GitHub')}: <a href='https://github.com/artyom7774/GELauncher'>https://github.com/artyom7774/GELauncher</a>")
+        self.objects["main"]["github"].setOpenExternalLinks(True)
+        self.objects["main"]["github"].setGeometry(100, 35, 1000, 30)
+        self.objects["main"]["github"].show()
+
+        self.objects["main"]["site"] = QLabel(self)
+        self.objects["main"]["site"].setFont(HELP_FONT)
+        self.objects["main"]["site"].setText(f"{translate('Project site')}: <a href='https://artyom7777.pythonanywhere.com'>https://artyom7777.pythonanywhere.com</a>")
+        self.objects["main"]["site"].setOpenExternalLinks(True)
+        self.objects["main"]["site"].setGeometry(100, 55, 1000, 30)
+        self.objects["main"]["site"].show()
+
+        self.objects["main"]["discord"] = QLabel(self)
+        self.objects["main"]["discord"].setFont(HELP_FONT)
+        self.objects["main"]["discord"].setText(f"{translate('Discord community')}: <a href='https://discord.gg/FxY6Kfgx57'>https://discord.gg/FxY6Kfgx57</a>")
+        self.objects["main"]["discord"].setOpenExternalLinks(True)
+        self.objects["main"]["discord"].setGeometry(100, 95, 1000, 30)
+        self.objects["main"]["discord"].show()
 
     def settingsMenu(self):
-        print(4)
+        self.objects["main"]["title"] = QLabel(self)
+        self.objects["main"]["title"].setFont(BIG_HELP_FONT)
+        self.objects["main"]["title"].setText(translate("Settings"))
+        self.objects["main"]["title"].setGeometry(100, 5, 400, 30)
+        self.objects["main"]["title"].show()
+
+        self.objects["main"]["language_label"] = QLabel(self)
+        self.objects["main"]["language_label"].setFont(HELP_FONT)
+        self.objects["main"]["language_label"].setText(f"{translate('Language')}:")
+        self.objects["main"]["language_label"].setGeometry(100, 35, 1000, 30)
+        self.objects["main"]["language_label"].show()
+
+        self.objects["main"]["language_combobox"] = QComboBox(parent=self)
+
+        self.objects["main"]["language_combobox"].addItems([obj for obj in LANGUAGES.values()])
+        for i, name in enumerate(LANGUAGES):
+            self.objects["main"]["language_combobox"].setItemIcon(i, QIcon(LANGUAGES_ICONS[name]))
+
+        self.objects["main"]["language_combobox"].setCurrentIndex([translate(obj).lower() == translate(LANGUAGES[SETTINGS["language"]]).lower() for obj in LANGUAGES.values()].index(True))
+        self.objects["main"]["language_combobox"].setGeometry(210, 35 + 2, 300, 20)
+        self.objects["main"]["language_combobox"].setFont(FONT)
+        self.objects["main"]["language_combobox"].show()
+
+        self.objects["main"]["language_combobox"].currentIndexChanged.connect(lambda: self.onLanguageClick())
+
+        self.objects["main"]["theme_label"] = QLabel(self)
+        self.objects["main"]["theme_label"].setFont(HELP_FONT)
+        self.objects["main"]["theme_label"].setText(f"{translate('Theme')}:")
+        self.objects["main"]["theme_label"].setGeometry(100, 65, 1000, 30)
+        self.objects["main"]["theme_label"].show()
+
+        self.objects["main"]["theme_combobox"] = QComboBox(parent=self)
+        self.objects["main"]["theme_combobox"].addItems([translate(obj) for obj in THEMES.values()])
+        self.objects["main"]["theme_combobox"].setCurrentIndex([translate(obj).lower() == translate(THEMES[SETTINGS["theme"]]).lower() for obj in THEMES.values()].index(True))
+        self.objects["main"]["theme_combobox"].setGeometry(210, 65 + 2, 300, 25)
+        self.objects["main"]["theme_combobox"].setFont(FONT)
+        self.objects["main"]["theme_combobox"].show()
+
+        self.objects["main"]["theme_combobox"].currentIndexChanged.connect(lambda: self.onThemeClick())
+
+    def onLanguageClick(self):
+        SETTINGS["language"] = list(LANGUAGES.keys())[self.objects["main"]["language_combobox"].currentIndex()]
+
+        with open("scr/files/settings/settings.json", "w", encoding="utf-8") as file:
+            json.dump(SETTINGS, file, indent=4)
+
+        thr = threading.Thread(target=lambda: self.newRunProgram())
+        thr.start()
+
+        self.close()
+
+    def onThemeClick(self):
+        SETTINGS["theme"] = list(THEMES.keys())[self.objects["main"]["theme_combobox"].currentIndex()]
+
+        with open("scr/files/settings/settings.json", "w", encoding="utf-8") as file:
+            json.dump(SETTINGS, file, indent=4)
+
+        thr = threading.Thread(target=lambda: self.newRunProgram())
+        thr.start()
+
+        self.close()
+
+    def newRunProgram(self):
+        if SYSTEM == "Windows":
+            if DIVELOP:
+                subprocess.run(["venv/Scripts/python.exe", "GELauncher.py"])
+
+            else:
+                subprocess.run(["Game Engine 3.exe"])
+
+        elif SYSTEM == "Linux":
+            pass
+
+        else:
+            print("ERROR: system (Unknown) not supported this opperation")
 
     def menu(self) -> None:
         self.statusBar()
