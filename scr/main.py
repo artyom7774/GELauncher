@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import QMainWindow, QApplication, QTreeWidget, QLabel, QComboBox, QStatusBar, QAction, QTreeWidgetItem, QShortcut, QPushButton, QScrollArea, QWidget, QVBoxLayout, QHBoxLayout
 from PyQt5.QtGui import QKeySequence
-from PyQt5.Qt import QIcon, QSize, Qt
+from PyQt5.Qt import QIcon, QSize, Qt, QThread
 
 from scr.variables import *
 
@@ -42,18 +42,6 @@ def exceptionHandler(func) -> typing.Callable:
             sys.exit()
 
     return wrapper
-
-
-def versionDownload(url, folder, chunk_size=8192):
-    if not os.path.exists(folder):
-        os.mkdir(folder)
-
-    with requests.get(url, stream=True) as r:
-        r.raise_for_status()
-        with open(f"{folder}/installer.exe", 'wb') as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
 
 
 def versionIsCurrect(version, minVersion):
@@ -139,6 +127,30 @@ class ProjectItem(QTreeWidget):
         self.project.init()
 
 
+class VersionDownloadThread(QThread):
+    def __init__(self, url, folder, version, parent=None):
+        super().__init__(parent)
+
+        self.url = url
+        self.folder = folder
+
+        self.version = version
+
+    def run(self):
+        if not os.path.exists(self.folder):
+            os.makedirs(self.folder)
+
+        with requests.get(self.url, stream=True) as r:
+            r.raise_for_status()
+            with open(f"{self.folder}/installer.exe", "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+
+        os.system(f"cd \"versions/Game Engine {self.version}\" && installer.exe /s")
+        os.remove(f"versions/Game Engine {self.version}/installer.exe")
+
+
 class VersionItem(QTreeWidget):
     def __init__(self, name, log="", version=None, wasInstalled=False, parent=None):
         super().__init__(parent)
@@ -209,13 +221,15 @@ class VersionItem(QTreeWidget):
             self.download.setText(translate("Please wait..."))
             self.download.setDisabled(True)
 
-            time.sleep(0.5)
-
             try:
-                versionDownload(
-                    f"https://github.com/artyom7774/Game-Engine-3/releases/download/GE{self.version}/Game-Engine-3-windows.sfx.exe",
-                    f"versions/Game Engine {self.version}/"
-                )
+                url = f"https://github.com/artyom7774/Game-Engine-3/releases/download/GE{self.version}/Game-Engine-3-windows.sfx.exe"
+                folder = f"versions/Game Engine {self.version}/"
+
+                self.project.downloading = True
+
+                thr = VersionDownloadThread(url, folder, self.version)
+                thr.finished.connect(self.onDownloadComplete)
+                thr.start()
 
             except Exception as e:
                 if str(e).startswith("404"):
@@ -236,16 +250,15 @@ class VersionItem(QTreeWidget):
 
                     return
 
-            os.system(f"cd \"versions/Game Engine {self.version}\" && installer.exe /s")
-            os.remove(f"versions/Game Engine {self.version}/installer.exe")
+        else:
+            thr = threading.Thread(target=lambda: os.system(f"cd \"versions/Game Engine {self.version}\" && \"Game Engine 3.exe\""))
+            thr.daemon = False
+            thr.start()
 
-            self.project.init()
+    def onDownloadComplete(self):
+        self.project.downloading = False
 
-            return
-
-        thr = threading.Thread(target=lambda: os.system(f"cd \"versions/Game Engine {self.version}\" && \"Game Engine 3.exe\""))
-        thr.daemon = False
-        thr.start()
+        self.project.init()
 
     def onSaveProjectsClick(self):
         pathLoad = f"versions/Game Engine {self.version}/projects"
@@ -297,9 +310,10 @@ class Main(QMainWindow):
 
         self.application = {}
 
+        self.menubar = None
         self.dialog = None
 
-        self.menubar = None
+        self.downloading = False
 
         self.desktop = QApplication.desktop()
 
@@ -390,6 +404,9 @@ class Main(QMainWindow):
         self.show()
 
     def init(self) -> None:
+        if self.downloading:
+            return
+
         for name, value in self.objects["main"].items():
             try:
                 value.hide()
@@ -410,6 +427,9 @@ class Main(QMainWindow):
         self.menu()
 
     def versionsMenu(self):
+        if self.downloading:
+            return
+
         global VERSIONS_WAS_LOADED
 
         self.objects["main"]["scroll_area"] = QScrollArea(self)
@@ -464,7 +484,7 @@ class Main(QMainWindow):
             name = data["updates"][version]["name"]
             log = data["updates"][version]["text"]
 
-            wasInstalled = os.path.exists(f"versions/Game Engine {version}/Game Engine 3.exe")
+            wasInstalled = os.path.exists(f"versions/Game Engine {version}/")
 
             version_item = VersionItem(name, log, version, wasInstalled, self)
 
@@ -478,6 +498,9 @@ class Main(QMainWindow):
         self.objects["main"]["scroll_area"].show()
 
     def projectsMenu(self):
+        if self.downloading:
+            return
+
         self.objects["main"]["scroll_area"] = QScrollArea(self)
         self.objects["main"]["scroll_area"].setGeometry(107, 10, self.width() - 130, self.height() - 42)
 
@@ -525,6 +548,9 @@ class Main(QMainWindow):
             self.objects["main"]["scroll_area"].show()
 
     def aboutMenu(self):
+        if self.downloading:
+            return
+
         self.objects["main"]["title"] = QLabel(self)
         self.objects["main"]["title"].setFont(BIG_HELP_FONT)
         self.objects["main"]["title"].setText(translate("About"))
@@ -553,6 +579,9 @@ class Main(QMainWindow):
         self.objects["main"]["discord"].show()
 
     def settingsMenu(self):
+        if self.downloading:
+            return
+
         self.objects["main"]["title"] = QLabel(self)
         self.objects["main"]["title"].setFont(BIG_HELP_FONT)
         self.objects["main"]["title"].setText(translate("Settings"))
@@ -621,7 +650,7 @@ class Main(QMainWindow):
                 subprocess.run(["venv/Scripts/python.exe", "GELauncher.py"])
 
             else:
-                subprocess.run(["Game Engine 3.exe"])
+                subprocess.run(["GELauncher.exe"])
 
         elif SYSTEM == "Linux":
             pass

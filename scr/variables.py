@@ -6,14 +6,11 @@ from scr.modules.translate import Translate
 import importlib.util
 import platform
 import random
-import pygame
 import ujson
 import json
 import os
 
 DIVELOP = os.getenv("PYCHARM_HOSTED") == "1"
-
-pygame.init()
 
 with open("scr/files/settings/settings.json", "r", encoding="utf-8") as file:
     SETTINGS = json.load(file)
